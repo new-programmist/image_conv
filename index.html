@@ -59,7 +59,7 @@
         }
         .file-input {
             margin: 15px 0;
-            display: none; /* 最初は非表示 */
+            display: none;
         }
         .status {
             margin-top: 10px;
@@ -68,6 +68,25 @@
         .loading {
             color: #888;
             font-style: italic;
+        }
+        .input-method {
+            margin-bottom: 15px;
+        }
+        .input-method button {
+            margin-right: 10px;
+            background-color: #f0f0f0;
+            color: #333;
+            border: 1px solid #ccc;
+        }
+        .input-method button.active {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .input-section {
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+            background-color: #f9f9f9;
         }
     </style>
 </head>
@@ -87,9 +106,23 @@
             <div id="fileStatus" class="status">未アップロード</div>
         </div>
         
-        <div>
-            <h3>入力テキスト:</h3>
-            <textarea id="inputText" placeholder="ここに変換したいテキストを入力してください..."></textarea>
+        <div class="input-section">
+            <div class="input-method">
+                <h3>テキスト入力方法:</h3>
+                <button id="directInputBtn" class="active">直接入力</button>
+                <button id="fileInputBtn">ファイルから読み込み</button>
+            </div>
+            
+            <div id="directInputArea">
+                <h3>入力テキスト:</h3>
+                <textarea id="inputText" placeholder="ここに変換したいテキストを入力してください..."></textarea>
+            </div>
+            
+            <div id="fileInputArea" style="display: none;">
+                <h3>テキストファイル:</h3>
+                <input type="file" id="textFileInput" accept=".txt,.text">
+                <div id="textFileStatus" class="status">ファイルが選択されていません</div>
+            </div>
         </div>
         
         <button id="convertBtn" disabled>画像に変換 (m.txtを準備中...)</button>
@@ -112,7 +145,42 @@
 
         let charMap = {};
         let charMapLoaded = false;
-        const NEWLINE_CODE = 49152; // 改行文字のコード
+        const NEWLINE_CODE = 49153; // 改行文字のコード
+        let currentText = "";
+
+        // 入力方法の切り替え
+        document.getElementById('directInputBtn').addEventListener('click', function() {
+            document.getElementById('directInputArea').style.display = 'block';
+            document.getElementById('fileInputArea').style.display = 'none';
+            this.classList.add('active');
+            document.getElementById('fileInputBtn').classList.remove('active');
+            currentText = document.getElementById('inputText').value;
+        });
+
+        document.getElementById('fileInputBtn').addEventListener('click', function() {
+            document.getElementById('directInputArea').style.display = 'none';
+            document.getElementById('fileInputArea').style.display = 'block';
+            this.classList.add('active');
+            document.getElementById('directInputBtn').classList.remove('active');
+        });
+
+        // テキストファイルの読み込み
+        document.getElementById('textFileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                currentText = e.target.result;
+                document.getElementById('textFileStatus').textContent = 
+                    `読み込み成功: ${file.name} (${currentText.length}文字)`;
+                document.getElementById('inputText').value = currentText;
+            };
+            reader.onerror = function() {
+                document.getElementById('textFileStatus').textContent = "ファイル読み込みエラー";
+            };
+            reader.readAsText(file);
+        });
 
         // m.txtを自動的に読み込む
         function loadDefaultCharMap() {
@@ -150,6 +218,7 @@
             }
             
             // 改行文字を49152にマッピング
+            charMap[""] = 0;
             charMap["\n"] = NEWLINE_CODE;
             charMapLoaded = true;
         }
@@ -182,21 +251,28 @@
                 return;
             }
             
-            const inputText = document.getElementById('inputText').value;
-            const outputDiv = document.getElementById('output');
-            outputDiv.innerHTML = '';
-            
-            if (!inputText.trim()) {
-                alert("変換するテキストを入力してください");
+            // 現在の入力方法からテキストを取得
+            if (document.getElementById('directInputBtn').classList.contains('active')) {
+                currentText = document.getElementById('inputText').value;
+            } else if (!currentText) {
+                alert("テキストファイルが読み込まれていません");
                 return;
             }
+            
+            if (!currentText.trim()) {
+                alert("変換するテキストがありません");
+                return;
+            }
+            
+            const outputDiv = document.getElementById('output');
+            outputDiv.innerHTML = '';
             
             // 入力テキストをチャンクに分割
             const chunkSize = Math.floor(360 * 240 / 16); // 5400文字/チャンク
             const chunks = [];
             
-            for (let i = 0; i < inputText.length; i += chunkSize) {
-                chunks.push(inputText.slice(i, i + chunkSize));
+            for (let i = 0; i < currentText.length; i += chunkSize) {
+                chunks.push(currentText.slice(i, i + chunkSize));
             }
             
             if (chunks.length === 0) chunks.push(""); // 空テキスト用
