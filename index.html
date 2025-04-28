@@ -59,10 +59,15 @@
         }
         .file-input {
             margin: 15px 0;
+            display: none; /* 最初は非表示 */
         }
         .status {
             margin-top: 10px;
             color: #666;
+        }
+        .loading {
+            color: #888;
+            font-style: italic;
         }
     </style>
 </head>
@@ -73,9 +78,10 @@
         <div class="info">
             <p>このツールはテキストを特殊なエンコーディングで画像に変換します。元のRubyスクリプト「convert2.rb」と「convert3.rb」のブラウザ版です。</p>
             <p><strong>改行文字(\n)は49152としてマッピングされます</strong></p>
+            <div id="loadStatus" class="loading">m.txtを読み込み中...</div>
         </div>
         
-        <div class="file-input">
+        <div id="fileInputContainer" class="file-input">
             <h3>文字マッピングファイル (m.txt):</h3>
             <input type="file" id="charMapFile" accept=".txt">
             <div id="fileStatus" class="status">未アップロード</div>
@@ -86,7 +92,7 @@
             <textarea id="inputText" placeholder="ここに変換したいテキストを入力してください..."></textarea>
         </div>
         
-        <button id="convertBtn">画像に変換</button>
+        <button id="convertBtn" disabled>画像に変換 (m.txtを準備中...)</button>
         
         <div>
             <h3>変換結果:</h3>
@@ -108,7 +114,47 @@
         let charMapLoaded = false;
         const NEWLINE_CODE = 49152; // 改行文字のコード
 
-        // m.txtファイルの読み込み処理
+        // m.txtを自動的に読み込む
+        function loadDefaultCharMap() {
+            fetch('m.txt')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('m.txtが見つかりません');
+                    }
+                    return response.text();
+                })
+                .then(content => {
+                    processCharMapContent(content);
+                    document.getElementById('loadStatus').textContent = 'm.txtを正常に読み込みました';
+                    document.getElementById('convertBtn').disabled = false;
+                    document.getElementById('convertBtn').textContent = '画像に変換';
+                })
+                .catch(error => {
+                    console.log(error.message);
+                    document.getElementById('loadStatus').textContent = 'm.txtが見つかりませんでした。手動でアップロードしてください。';
+                    document.getElementById('fileInputContainer').style.display = 'block';
+                });
+        }
+
+        // 文字マッピングを処理
+        function processCharMapContent(content) {
+            charMap = {};
+            
+            // 通常の文字をマッピング (1から開始)
+            for (let i = 0; i < content.length; i++) {
+                const char = content[i];
+                // 改行文字は特別扱いしない
+                if (char !== '\n') {
+                    charMap[char] = i + 1;
+                }
+            }
+            
+            // 改行文字を49152にマッピング
+            charMap["\n"] = NEWLINE_CODE;
+            charMapLoaded = true;
+        }
+
+        // m.txtファイルの手動アップロード処理
         document.getElementById('charMapFile').addEventListener('change', function(e) {
             const file = e.target.files[0];
             if (!file) return;
@@ -116,23 +162,12 @@
             const reader = new FileReader();
             reader.onload = function(e) {
                 const content = e.target.result;
-                charMap = {};
-                
-                // 通常の文字をマッピング (1から開始)
-                for (let i = 0; i < content.length; i++) {
-                    const char = content[i];
-                    // 改行文字は特別扱いしない
-                    if (char !== '\n') {
-                        charMap[char] = i + 1;
-                    }
-                }
-                
-                // 改行文字を49152にマッピング
-                charMap["\n"] = NEWLINE_CODE;
-                charMapLoaded = true;
+                processCharMapContent(content);
                 
                 document.getElementById('fileStatus').textContent = 
                     `読み込み成功: ${content.length}文字 (改行文字は49152にマッピング)`;
+                document.getElementById('convertBtn').disabled = false;
+                document.getElementById('convertBtn').textContent = '画像に変換';
             };
             reader.onerror = function() {
                 document.getElementById('fileStatus').textContent = "ファイル読み込みエラー";
@@ -140,9 +175,10 @@
             reader.readAsText(file);
         });
 
+        // 変換ボタンの処理
         document.getElementById('convertBtn').addEventListener('click', function() {
             if (!charMapLoaded) {
-                alert("まず文字マッピングファイル(m.txt)をアップロードしてください");
+                alert("文字マッピングが読み込まれていません");
                 return;
             }
             
@@ -232,6 +268,9 @@
                 outputDiv.appendChild(container);
             });
         });
+
+        // ページ読み込み時にm.txtを自動的に読み込む
+        window.addEventListener('DOMContentLoaded', loadDefaultCharMap);
     </script>
 </body>
 </html>
