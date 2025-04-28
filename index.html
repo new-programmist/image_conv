@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>テキスト画像変換ツール</title>
+    <style>
+        body {
+            font-family: "Meiryo", sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        textarea, input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            font-family: "MS Gothic", monospace;
+        }
+        textarea {
+            height: 200px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .output {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .image-container {
+            border: 1px solid #ddd;
+            padding: 10px;
+            background: #f9f9f9;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .info {
+            background: #f0f8ff;
+            padding: 10px;
+            border-left: 4px solid #4682b4;
+        }
+        .file-input {
+            margin: 15px 0;
+        }
+        .status {
+            margin-top: 10px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>テキスト画像変換ツール</h1>
+        
+        <div class="info">
+            <p>このツールはテキストを特殊なエンコーディングで画像に変換します。元のRubyスクリプト「convert2.rb」と「convert3.rb」のブラウザ版です。</p>
+            <p><strong>改行文字(\n)は49152としてマッピングされます</strong></p>
+        </div>
+        
+        <div class="file-input">
+            <h3>文字マッピングファイル (m.txt):</h3>
+            <input type="file" id="charMapFile" accept=".txt">
+            <div id="fileStatus" class="status">未アップロード</div>
+        </div>
+        
+        <div>
+            <h3>入力テキスト:</h3>
+            <textarea id="inputText" placeholder="ここに変換したいテキストを入力してください..."></textarea>
+        </div>
+        
+        <button id="convertBtn">画像に変換</button>
+        
+        <div>
+            <h3>変換結果:</h3>
+            <div id="output" class="output"></div>
+        </div>
+    </div>
+
+    <script>
+        // 色マッピング (色2.txtから)
+        const colorMap = {
+            "ੜ": [0, 0, 0],        // #000000 (黒)
+            "ਣ": [0, 255, 0],      // #00ff00 (緑)
+            "ਤ": [255, 0, 0],      // #ff0000 (赤)
+            "ਥ": [255, 255, 0],    // #ffff00 (黄)
+            "ਦ": [0, 0, 255]       // #0000ff (青)
+        };
+
+        let charMap = {};
+        let charMapLoaded = false;
+        const NEWLINE_CODE = 49152; // 改行文字のコード
+
+        // m.txtファイルの読み込み処理
+        document.getElementById('charMapFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                charMap = {};
+                
+                // 通常の文字をマッピング (1から開始)
+                for (let i = 0; i < content.length; i++) {
+                    const char = content[i];
+                    // 改行文字は特別扱いしない
+                    if (char !== '\n') {
+                        charMap[char] = i + 1;
+                    }
+                }
+                
+                // 改行文字を49152にマッピング
+                charMap["\n"] = NEWLINE_CODE;
+                charMapLoaded = true;
+                
+                document.getElementById('fileStatus').textContent = 
+                    `読み込み成功: ${content.length}文字 (改行文字は49152にマッピング)`;
+            };
+            reader.onerror = function() {
+                document.getElementById('fileStatus').textContent = "ファイル読み込みエラー";
+            };
+            reader.readAsText(file);
+        });
+
+        document.getElementById('convertBtn').addEventListener('click', function() {
+            if (!charMapLoaded) {
+                alert("まず文字マッピングファイル(m.txt)をアップロードしてください");
+                return;
+            }
+            
+            const inputText = document.getElementById('inputText').value;
+            const outputDiv = document.getElementById('output');
+            outputDiv.innerHTML = '';
+            
+            if (!inputText.trim()) {
+                alert("変換するテキストを入力してください");
+                return;
+            }
+            
+            // 入力テキストをチャンクに分割
+            const chunkSize = Math.floor(360 * 240 / 16); // 5400文字/チャンク
+            const chunks = [];
+            
+            for (let i = 0; i < inputText.length; i += chunkSize) {
+                chunks.push(inputText.slice(i, i + chunkSize));
+            }
+            
+            if (chunks.length === 0) chunks.push(""); // 空テキスト用
+            
+            // 各チャンクを処理
+            chunks.forEach((chunk, index) => {
+                // テキストをピクセルデータに変換
+                const pixelChars = [];
+                
+                for (const char of chunk) {
+                    let code = charMap[char] || 0; // 未定義文字は0扱い
+                    
+                    // 改行文字の場合は49152を使用
+                    if (char === '\n') {
+                        code = NEWLINE_CODE;
+                    }
+                    
+                    const base4 = code.toString(4).padStart(8, '0'); // 4進数8桁
+                    
+                    for (const digit of base4) {
+                        const colorIndex = parseInt(digit) + 1;
+                        const pixelChar = Object.keys(colorMap)[colorIndex] || Object.keys(colorMap)[0];
+                        pixelChars.push(pixelChar);
+                    }
+                }
+                
+                // 画像データ作成 (240x180ピクセル)
+                const width = 240;
+                const height = 180;
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                const imageData = ctx.createImageData(width, height);
+                
+                // ピクセルデータを画像に設定
+                for (let i = 0; i < width * height; i++) {
+                    const pixelChar = i < pixelChars.length ? pixelChars[i] : Object.keys(colorMap)[0];
+                    const color = colorMap[pixelChar] || [0, 0, 0];
+                    
+                    const idx = i * 4;
+                    imageData.data[idx] = color[0];     // R
+                    imageData.data[idx + 1] = color[1]; // G
+                    imageData.data[idx + 2] = color[2]; // B
+                    imageData.data[idx + 3] = 255;      // A (不透明)
+                }
+                
+                ctx.putImageData(imageData, 0, 0);
+                
+                // 結果表示
+                const container = document.createElement('div');
+                container.className = 'image-container';
+                container.innerHTML = `<h4>画像 ${index + 1}/${chunks.length}</h4>`;
+                container.appendChild(canvas);
+                
+                // ダウンロードボタン追加
+                const downloadBtn = document.createElement('button');
+                downloadBtn.textContent = "画像を保存";
+                downloadBtn.style.marginTop = "10px";
+                downloadBtn.style.backgroundColor = "#4682b4";
+                downloadBtn.onclick = function() {
+                    const link = document.createElement('a');
+                    link.download = `text_image_${index + 1}.png`;
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                };
+                container.appendChild(downloadBtn);
+                
+                outputDiv.appendChild(container);
+            });
+        });
+    </script>
+</body>
+</html>
